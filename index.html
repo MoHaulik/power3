@@ -97,7 +97,7 @@
       text-align: center;
       font-size: 18px;
       display: none;
-      z-index: 4;
+      z-index: 3;
     }
   </style>
 </head>
@@ -121,28 +121,16 @@
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.150.1/build/three.module.js';
     import { GLTFLoader } from 'https://unpkg.com/three@0.150.1/examples/jsm/loaders/GLTFLoader.js';
+    import { OutlineEffect } from 'https://unpkg.com/three@0.150.1/examples/jsm/effects/OutlineEffect.js';
 
-    let camera, scene, renderer;
+    let camera, scene, renderer, effect;
     let poseModel = null;
     let currentPose = null;
     let timerInterval = null;
     let secondsLeft = 60;
-    
-    // Store models for reuse
-    const models = {
-      wonder: null,
-      victory: null,
-      ceo: null,
-      eagle: null
-    };
-    
-    // Model file paths
-    const modelPaths = {
-      wonder: 'tmpw7t1igwc.glb',
-      victory: 'tmpnp746o6r.glb',
-      ceo: 'tmpmdxokgkr.glb',
-      eagle: null // Will use fallback shape since no model was specified
-    };
+    let models = {};
+    let loadingPromises = [];
+    let isLoading = false;
     
     const poseDescriptions = {
       wonder: "Stand tall with feet shoulder-width apart, hands on your hips, elbows out, and chin slightly raised.",
@@ -151,47 +139,13 @@
       eagle: "Clasp your hands behind your back, draw your shoulders back, lift your chest, and look forward."
     };
     
-    const loader = new GLTFLoader();
-    let modelsLoaded = false;
-    let loadingPromises = [];
-    
-    preloadModels();
-    
-    function preloadModels() {
-      document.getElementById('loading').style.display = 'block';
-      
-      // Preload all models
-      for (const pose in modelPaths) {
-        if (modelPaths[pose]) {
-          const promise = new Promise((resolve, reject) => {
-            loader.load(
-              modelPaths[pose],
-              (gltf) => {
-                models[pose] = gltf.scene;
-                resolve();
-              },
-              undefined,
-              (error) => {
-                console.error(`Error loading ${pose} model:`, error);
-                reject(error);
-              }
-            );
-          });
-          loadingPromises.push(promise);
-        }
-      }
-      
-      Promise.all(loadingPromises)
-        .then(() => {
-          modelsLoaded = true;
-          document.getElementById('loading').style.display = 'none';
-          console.log('All models loaded successfully');
-        })
-        .catch(error => {
-          console.error('Error loading models:', error);
-          document.getElementById('loading').textContent = 'Error loading models. Please reload the page.';
-        });
-    }
+    const modelPaths = {
+      wonder: 'tmpw7t1igwc.glb',
+      victory: 'tmpnp746o6r.glb',
+      ceo: 'tmpmdxokgkr.glb',
+      // For eagle, we'll reuse one of the models since you didn't specify a model for it
+      eagle: 'tmpw7t1igwc.glb'
+    };
     
     init();
 
@@ -204,29 +158,45 @@
       renderer.xr.enabled = true;
       renderer.setClearColor(0x000000, 0);
       document.body.appendChild(renderer.domElement);
+      
+      // Create outline effect for glow
+      effect = new OutlineEffect(renderer, {
+        defaultThickness: 0.01,
+        defaultColor: new THREE.Color(0x00FFFF),
+        defaultAlpha: 0.8
+      });
 
       const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
       scene.add(ambientLight);
       
-      // Add directional light for better model visibility
+      // Add directional light to enhance model visibility
       const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-      directionalLight.position.set(0, 5, 5);
+      directionalLight.position.set(0, 1, 0.5);
       scene.add(directionalLight);
 
       document.getElementById('start-button').addEventListener('click', () => {
-        if (!modelsLoaded && loadingPromises.length > 0) {
-          updateStatus('Still loading models, please wait...');
-          return;
-        }
-        
         if (navigator.xr) {
           navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
             if (supported) {
-              const sessionInit = { 
-                optionalFeatures: ['dom-overlay'], 
-                domOverlay: { root: document.body } 
-              };
-              navigator.xr.requestSession('immersive-ar', sessionInit).then(onSessionStarted);
+              // Start loading models before entering AR
+              isLoading = true;
+              document.getElementById('loading').style.display = 'block';
+              
+              // Load all models first
+              loadAllModels().then(() => {
+                isLoading = false;
+                document.getElementById('loading').style.display = 'none';
+                
+                const sessionInit = { 
+                  optionalFeatures: ['dom-overlay'], 
+                  domOverlay: { root: document.body } 
+                };
+                navigator.xr.requestSession('immersive-ar', sessionInit).then(onSessionStarted);
+              }).catch(error => {
+                isLoading = false;
+                document.getElementById('loading').style.display = 'none';
+                updateStatus('Error loading models: ' + error.message);
+              });
             } else {
               updateStatus('WebXR AR not supported on this device.');
             }
@@ -242,6 +212,33 @@
       document.getElementById('pose-victory').addEventListener('click', () => changePose('victory'));
       document.getElementById('pose-ceo').addEventListener('click', () => changePose('ceo'));
       document.getElementById('pose-eagle').addEventListener('click', () => changePose('eagle'));
+    }
+    
+    function loadAllModels() {
+      const loader = new GLTFLoader();
+      
+      for (const [pose, path] of Object.entries(modelPaths)) {
+        const loadPromise = new Promise((resolve, reject) => {
+          loader.load(
+            path,
+            (gltf) => {
+              models[pose] = gltf.scene;
+              resolve();
+            },
+            (xhr) => {
+              console.log(`${pose} model: ${(xhr.loaded / xhr.total * 100)}% loaded`);
+            },
+            (error) => {
+              console.error(`Error loading ${pose} model:`, error);
+              reject(error);
+            }
+          );
+        });
+        
+        loadingPromises.push(loadPromise);
+      }
+      
+      return Promise.all(loadingPromises);
     }
 
     function updateStatus(message) {
@@ -265,7 +262,7 @@
       
       document.getElementById('pose-controls').style.display = 'flex';
       
-      // Start with wonder woman pose
+      // Default to wonder pose
       changePose('wonder');
       
       renderer.setAnimationLoop(render);
@@ -284,6 +281,11 @@
         clearInterval(timerInterval);
         timerInterval = null;
       }
+      
+      if (poseModel) {
+        scene.remove(poseModel);
+        poseModel = null;
+      }
     }
     
     function createPoseModel(pose) {
@@ -291,134 +293,59 @@
         scene.remove(poseModel);
       }
       
-      poseModel = new THREE.Group();
-      
-      // If we have a preloaded model for this pose, use it
-      if (models[pose]) {
-        const modelClone = models[pose].clone();
-        
-        // Add any model-specific adjustments here
-        switch (pose) {
-          case 'wonder':
-            // Wonder Woman pose model adjustments
-            modelClone.scale.set(0.7, 0.7, 0.7);
-            modelClone.position.set(0, -0.5, 0);
-            break;
-            
-          case 'victory':
-            // Victory pose model adjustments
-            modelClone.scale.set(0.7, 0.7, 0.7);
-            modelClone.position.set(0, -0.5, 0);
-            break;
-            
-          case 'ceo':
-            // CEO pose model adjustments
-            modelClone.scale.set(0.7, 0.7, 0.7);
-            modelClone.position.set(0, -0.5, 0);
-            break;
-        }
-        
-        // Add glow effect
-        const glowMaterial = new THREE.MeshBasicMaterial({
-          color: 0x00CCFF,
-          transparent: true,
-          opacity: 0.4,
-          side: THREE.DoubleSide
-        });
-        
-        // Add the model to our group
-        poseModel.add(modelClone);
-      } else {
-        // Fallback to original shape-based silhouettes if no model is available (eagle pose)
-        const material = new THREE.MeshBasicMaterial({
-          color: 0xFFFFFF,
-          transparent: true,
-          opacity: 0.85,
-          side: THREE.DoubleSide
-        });
-        
-        // Create a silhouette for the eagle pose
-        const silhouette = createEagleShape();
-        poseModel.add(silhouette);
+      if (!models[pose]) {
+        updateStatus(`Model for ${pose} pose not loaded`);
+        return null;
       }
       
-      // Position the pose model in front of the user
+      // Create a new group for the pose model
+      poseModel = new THREE.Group();
+      
+      // Clone the loaded model
+      const modelClone = models[pose].clone();
+      
+      // Add neon glow material to the model
+      modelClone.traverse(function(object) {
+        if (object.isMesh) {
+          // Create a semi-transparent material with ice blue color
+          const originalMaterial = object.material;
+          const newMaterial = new THREE.MeshStandardMaterial({
+            color: 0xADEEFF,
+            transparent: true,
+            opacity: 0.7,
+            emissive: 0x00CCFF,
+            emissiveIntensity: 0.5
+          });
+          
+          object.material = newMaterial;
+          
+          // Add a glow effect by creating a slightly larger version with emission
+          const glowMesh = object.clone();
+          const glowMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00CCFF,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.BackSide
+          });
+          
+          glowMesh.material = glowMaterial;
+          glowMesh.scale.multiplyScalar(1.05);
+          poseModel.add(glowMesh);
+        }
+      });
+      
+      // Add the model to the group
+      poseModel.add(modelClone);
+      
+      // Position the model in front of the user
       poseModel.position.set(0, -0.5, -1.5);
+      
+      // Scale the model appropriately
+      poseModel.scale.set(0.7, 0.7, 0.7);
+      
       scene.add(poseModel);
       
       return poseModel;
-    }
-    
-    // Only keeping the eagle pose shape function since we don't have a model for it
-    function createEagleShape(extraSize = 0) {
-      const material = new THREE.MeshBasicMaterial({
-        color: 0xFFFFFF,
-        transparent: true,
-        opacity: 0.85,
-        side: THREE.DoubleSide
-      });
-      
-      const silhouette = new THREE.Group();
-      
-      // Head
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(0.15, 8, 8),
-        material
-      );
-      head.position.y = 0.8;
-      
-      // Body
-      const body = new THREE.Mesh(
-        new THREE.BoxGeometry(0.35, 0.6, 0.1),
-        material
-      );
-      body.position.y = 0.3;
-      
-      // Arms behind back
-      const arms = new THREE.Mesh(
-        new THREE.BoxGeometry(0.4, 0.08, 0.08),
-        material
-      );
-      arms.position.set(0, 0.2, -0.08);
-      
-      // Legs
-      const leftLeg = new THREE.Mesh(
-        new THREE.BoxGeometry(0.15, 0.6, 0.1),
-        material
-      );
-      leftLeg.position.set(-0.15, -0.3, 0);
-      
-      const rightLeg = new THREE.Mesh(
-        new THREE.BoxGeometry(0.15, 0.6, 0.1),
-        material
-      );
-      rightLeg.position.set(0.15, -0.3, 0);
-      
-      silhouette.add(head, body, arms, leftLeg, rightLeg);
-      
-      // Add glow effect
-      const glowMaterial = new THREE.MeshBasicMaterial({
-        color: 0x00CCFF,
-        transparent: true,
-        opacity: 0.4,
-        side: THREE.DoubleSide
-      });
-      
-      const headGlow = new THREE.Mesh(
-        new THREE.SphereGeometry(0.17, 8, 8),
-        glowMaterial
-      );
-      headGlow.position.y = 0.8;
-      
-      const bodyGlow = new THREE.Mesh(
-        new THREE.BoxGeometry(0.39, 0.64, 0.14),
-        glowMaterial
-      );
-      bodyGlow.position.y = 0.3;
-      
-      silhouette.add(headGlow, bodyGlow);
-      
-      return silhouette;
     }
     
     function changePose(pose) {
@@ -471,7 +398,8 @@
         poseModel.rotation.y += 0.005;
       }
       
-      renderer.render(scene, camera);
+      // Use outline effect for rendering to add glow
+      effect.render(scene, camera);
     }
   </script>
 </body>
