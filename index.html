@@ -41,11 +41,10 @@
       position: absolute;
       bottom: 20px;
       width: 100%;
-      display: flex;
+      display: none; /* Fixed display property conflict */
       justify-content: center;
       gap: 10px;
       z-index: 2;
-      display: none;
     }
     .pose-button {
       padding: 10px 15px;
@@ -129,8 +128,8 @@
     let timerInterval = null;
     let secondsLeft = 60;
     let models = {};
-    let loadingPromises = [];
-    let isLoading = false;
+    let loadingModels = false;
+    let session = null;
     
     const poseDescriptions = {
       wonder: "Stand tall with feet shoulder-width apart, hands on your hips, elbows out, and chin slightly raised.",
@@ -174,37 +173,7 @@
       directionalLight.position.set(0, 1, 0.5);
       scene.add(directionalLight);
 
-      document.getElementById('start-button').addEventListener('click', () => {
-        if (navigator.xr) {
-          navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-            if (supported) {
-              // Start loading models before entering AR
-              isLoading = true;
-              document.getElementById('loading').style.display = 'block';
-              
-              // Load all models first
-              loadAllModels().then(() => {
-                isLoading = false;
-                document.getElementById('loading').style.display = 'none';
-                
-                const sessionInit = { 
-                  optionalFeatures: ['dom-overlay'], 
-                  domOverlay: { root: document.body } 
-                };
-                navigator.xr.requestSession('immersive-ar', sessionInit).then(onSessionStarted);
-              }).catch(error => {
-                isLoading = false;
-                document.getElementById('loading').style.display = 'none';
-                updateStatus('Error loading models: ' + error.message);
-              });
-            } else {
-              updateStatus('WebXR AR not supported on this device.');
-            }
-          });
-        } else {
-          updateStatus('WebXR not supported in this browser.');
-        }
-      });
+      document.getElementById('start-button').addEventListener('click', startARSession);
 
       window.addEventListener('resize', onWindowResize);
       
@@ -214,34 +183,89 @@
       document.getElementById('pose-eagle').addEventListener('click', () => changePose('eagle'));
     }
     
+    function startARSession() {
+      console.log("Starting AR session process...");
+      
+      if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+          if (supported) {
+            console.log("AR is supported. Requesting session immediately...");
+            
+            const sessionInit = { 
+              optionalFeatures: ['dom-overlay'], 
+              domOverlay: { root: document.body } 
+            };
+            
+            navigator.xr.requestSession('immersive-ar', sessionInit)
+              .then((xrSession) => {
+                console.log("AR session created successfully");
+                session = xrSession;
+                onSessionStarted(xrSession);
+                
+                // Load models after the session has already started
+                loadAllModels();
+              })
+              .catch(error => {
+                console.error("Failed to start AR session:", error);
+                updateStatus(`Failed to start AR: ${error.message}`);
+              });
+          } else {
+            updateStatus('WebXR AR not supported on this device.');
+          }
+        });
+      } else {
+        updateStatus('WebXR not supported in this browser.');
+      }
+    }
+    
     function loadAllModels() {
+      console.log("Loading all models within AR session...");
+      loadingModels = true;
+      document.getElementById('loading').style.display = 'block';
+      updateStatus('Loading 3D models...');
+      
       const loader = new GLTFLoader();
+      let loadedCount = 0;
+      const totalModels = Object.keys(modelPaths).length;
       
       for (const [pose, path] of Object.entries(modelPaths)) {
-        const loadPromise = new Promise((resolve, reject) => {
+        try {
+          console.log(`Starting to load model: ${pose} from ${path}`);
           loader.load(
             path,
             (gltf) => {
+              console.log(`Successfully loaded model: ${pose}`);
               models[pose] = gltf.scene;
-              resolve();
+              loadedCount++;
+              
+              if (loadedCount === totalModels) {
+                console.log("All models loaded successfully");
+                loadingModels = false;
+                document.getElementById('loading').style.display = 'none';
+                updateStatus('Models loaded. Choose a power pose below.');
+                
+                // Show the first model only after loading is complete
+                changePose('wonder');
+              }
             },
             (xhr) => {
-              console.log(`${pose} model: ${(xhr.loaded / xhr.total * 100)}% loaded`);
+              console.log(`${pose} model: ${(xhr.loaded / xhr.total * 100).toFixed(2)}% loaded`);
             },
             (error) => {
               console.error(`Error loading ${pose} model:`, error);
-              reject(error);
+              updateStatus(`Error loading model: ${pose}. ${error.message}`);
+              loadingModels = false;
             }
           );
-        });
-        
-        loadingPromises.push(loadPromise);
+        } catch (err) {
+          console.error(`Exception during ${pose} model load setup:`, err);
+          updateStatus(`Error setting up model loader: ${err.message}`);
+        }
       }
-      
-      return Promise.all(loadingPromises);
     }
 
     function updateStatus(message) {
+      console.log("Status update:", message);
       const statusElement = document.getElementById('status');
       statusElement.style.display = 'block';
       statusElement.textContent = message;
@@ -253,29 +277,29 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    function onSessionStarted(session) {
+    function onSessionStarted(xrSession) {
+      console.log("Setting up XR session");
       renderer.xr.setReferenceSpaceType('local');
-      renderer.xr.setSession(session);
+      renderer.xr.setSession(xrSession);
       
       document.getElementById('start-button').style.display = 'none';
-      updateStatus('AR session started. Choose a power pose below.');
+      updateStatus('AR session started. Loading models...');
       
       document.getElementById('pose-controls').style.display = 'flex';
       
-      // Default to wonder pose
-      changePose('wonder');
-      
       renderer.setAnimationLoop(render);
 
-      session.addEventListener('end', onSessionEnd);
+      xrSession.addEventListener('end', onSessionEnd);
     }
 
     function onSessionEnd() {
+      console.log("AR session ended");
       updateStatus('AR session ended');
       document.getElementById('start-button').style.display = 'block';
       document.getElementById('pose-controls').style.display = 'none';
       document.getElementById('timer').style.display = 'none';
       document.getElementById('pose-instructions').style.display = 'none';
+      document.getElementById('loading').style.display = 'none';
       
       if (timerInterval) {
         clearInterval(timerInterval);
@@ -286,69 +310,87 @@
         scene.remove(poseModel);
         poseModel = null;
       }
+      
+      session = null;
     }
     
     function createPoseModel(pose) {
-      if (poseModel) {
-        scene.remove(poseModel);
+      if (loadingModels || !models[pose]) {
+        console.log(`Cannot create model for ${pose} - still loading or model not found`);
+        return null;
       }
       
-      if (!models[pose]) {
-        updateStatus(`Model for ${pose} pose not loaded`);
-        return null;
+      console.log(`Creating model for pose: ${pose}`);
+      
+      if (poseModel) {
+        scene.remove(poseModel);
       }
       
       // Create a new group for the pose model
       poseModel = new THREE.Group();
       
-      // Clone the loaded model
-      const modelClone = models[pose].clone();
-      
-      // Add neon glow material to the model
-      modelClone.traverse(function(object) {
-        if (object.isMesh) {
-          // Create a semi-transparent material with ice blue color
-          const originalMaterial = object.material;
-          const newMaterial = new THREE.MeshStandardMaterial({
-            color: 0xADEEFF,
-            transparent: true,
-            opacity: 0.7,
-            emissive: 0x00CCFF,
-            emissiveIntensity: 0.5
-          });
-          
-          object.material = newMaterial;
-          
-          // Add a glow effect by creating a slightly larger version with emission
-          const glowMesh = object.clone();
-          const glowMaterial = new THREE.MeshBasicMaterial({
-            color: 0x00CCFF,
-            transparent: true,
-            opacity: 0.3,
-            side: THREE.BackSide
-          });
-          
-          glowMesh.material = glowMaterial;
-          glowMesh.scale.multiplyScalar(1.05);
-          poseModel.add(glowMesh);
-        }
-      });
-      
-      // Add the model to the group
-      poseModel.add(modelClone);
-      
-      // Position the model in front of the user
-      poseModel.position.set(0, -0.5, -1.5);
-      
-      // Scale the model appropriately
-      poseModel.scale.set(0.7, 0.7, 0.7);
-      
-      scene.add(poseModel);
+      try {
+        // Clone the loaded model
+        const modelClone = models[pose].clone();
+        
+        // Add neon glow material to the model
+        modelClone.traverse(function(object) {
+          if (object.isMesh) {
+            // Create a semi-transparent material with ice blue color
+            const newMaterial = new THREE.MeshStandardMaterial({
+              color: 0xADEEFF,
+              transparent: true,
+              opacity: 0.7,
+              emissive: 0x00CCFF,
+              emissiveIntensity: 0.5
+            });
+            
+            object.material = newMaterial;
+            
+            // Add a glow effect by creating a slightly larger version with emission
+            const glowMesh = object.clone();
+            const glowMaterial = new THREE.MeshBasicMaterial({
+              color: 0x00CCFF,
+              transparent: true,
+              opacity: 0.3,
+              side: THREE.BackSide
+            });
+            
+            glowMesh.material = glowMaterial;
+            glowMesh.scale.multiplyScalar(1.05);
+            poseModel.add(glowMesh);
+          }
+        });
+        
+        // Add the model to the group
+        poseModel.add(modelClone);
+        
+        // Position the model in front of the user
+        poseModel.position.set(0, -0.5, -1.5);
+        
+        // Scale the model appropriately
+        poseModel.scale.set(0.7, 0.7, 0.7);
+        
+        scene.add(poseModel);
+        console.log(`Model for ${pose} created and added to scene`);
+        
+      } catch (error) {
+        console.error(`Error creating pose model for ${pose}:`, error);
+        updateStatus(`Error displaying model: ${error.message}`);
+        return null;
+      }
       
       return poseModel;
     }
     
     function changePose(pose) {
+      console.log(`Changing to pose: ${pose}`);
+      
+      if (loadingModels) {
+        console.log("Models still loading, can't change pose yet");
+        return;
+      }
+      
       // Update active button styling
       document.querySelectorAll('.pose-button').forEach(btn => {
         btn.classList.remove('active');
@@ -356,36 +398,37 @@
       document.getElementById(`pose-${pose}`).classList.add('active');
       
       // Create model for selected pose
-      createPoseModel(pose);
-      currentPose = pose;
-      
-      // Show instructions
-      const instructionsElement = document.getElementById('pose-instructions');
-      instructionsElement.textContent = poseDescriptions[pose];
-      instructionsElement.style.display = 'block';
-      
-      // Clear existing timer if any
-      if (timerInterval) {
-        clearInterval(timerInterval);
-      }
-      
-      // Set up new timer for 60 seconds
-      secondsLeft = 60;
-      updateTimer();
-      document.getElementById('timer').style.display = 'block';
-      
-      timerInterval = setInterval(() => {
-        secondsLeft--;
-        updateTimer();
+      if (createPoseModel(pose)) {
+        currentPose = pose;
         
-        if (secondsLeft <= 0) {
+        // Show instructions
+        const instructionsElement = document.getElementById('pose-instructions');
+        instructionsElement.textContent = poseDescriptions[pose];
+        instructionsElement.style.display = 'block';
+        
+        // Clear existing timer if any
+        if (timerInterval) {
           clearInterval(timerInterval);
-          timerInterval = null;
-          
-          // Show completion message
-          updateStatus(`${pose.charAt(0).toUpperCase() + pose.slice(1)} pose complete! Choose another pose.`);
         }
-      }, 1000);
+        
+        // Set up new timer for 60 seconds
+        secondsLeft = 60;
+        updateTimer();
+        document.getElementById('timer').style.display = 'block';
+        
+        timerInterval = setInterval(() => {
+          secondsLeft--;
+          updateTimer();
+          
+          if (secondsLeft <= 0) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            
+            // Show completion message
+            updateStatus(`${pose.charAt(0).toUpperCase() + pose.slice(1)} pose complete! Choose another pose.`);
+          }
+        }, 1000);
+      }
     }
     
     function updateTimer() {
