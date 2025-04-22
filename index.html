@@ -112,7 +112,6 @@
     let currentPose = null;
     let timerInterval = null;
     let secondsLeft = 60;
-    const loader = new GLTFLoader();
     
     const poseDescriptions = {
       wonder: "Stand tall with feet shoulder-width apart, hands on your hips, elbows out, and chin slightly raised.",
@@ -121,10 +120,11 @@
       eagle: "Clasp your hands behind your back, draw your shoulders back, lift your chest, and look forward."
     };
     
-    const modelUrls = {
+    const modelPaths = {
       wonder: 'tmpw7t1igwc.glb',
       victory: 'tmpnp746o6r.glb',
-      ceo: 'tmpmdxokgkr.glb'
+      ceo: 'tmpmdxokgkr.glb',
+      eagle: 'tmpw7t1igwc.glb' // Using wonder model as placeholder for eagle since no model provided
     };
     
     init();
@@ -146,7 +146,10 @@
         if (navigator.xr) {
           navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
             if (supported) {
-              const sessionInit = { optionalFeatures: ['dom-overlay'], domOverlay: { root: document.body } };
+              const sessionInit = { 
+                optionalFeatures: ['dom-overlay'], 
+                domOverlay: { root: document.body } 
+              };
               navigator.xr.requestSession('immersive-ar', sessionInit).then(onSessionStarted);
             } else {
               updateStatus('WebXR AR not supported on this device.');
@@ -158,6 +161,7 @@
       });
 
       window.addEventListener('resize', onWindowResize);
+      
       document.getElementById('pose-wonder').addEventListener('click', () => changePose('wonder'));
       document.getElementById('pose-victory').addEventListener('click', () => changePose('victory'));
       document.getElementById('pose-ceo').addEventListener('click', () => changePose('ceo'));
@@ -179,11 +183,16 @@
     function onSessionStarted(session) {
       renderer.xr.setReferenceSpaceType('local');
       renderer.xr.setSession(session);
+      
       document.getElementById('start-button').style.display = 'none';
       updateStatus('AR session started. Choose a power pose below.');
+      
       document.getElementById('pose-controls').style.display = 'flex';
-      createPoseModel('wonder');
+      
+      changePose('wonder');
+      
       renderer.setAnimationLoop(render);
+
       session.addEventListener('end', onSessionEnd);
     }
 
@@ -193,7 +202,11 @@
       document.getElementById('pose-controls').style.display = 'none';
       document.getElementById('timer').style.display = 'none';
       document.getElementById('pose-instructions').style.display = 'none';
-      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
     }
     
     function createPoseModel(pose) {
@@ -201,26 +214,89 @@
         scene.remove(poseModel);
         poseModel = null;
       }
-      if (modelUrls[pose]) {
-        loader.load(
-          modelUrls[pose],
-          (gltf) => {
-            poseModel = gltf.scene;
-            poseModel.scale.set(0.7, 0.7, 0.7);
-            poseModel.position.set(0, -0.5, -1.5);
-            scene.add(poseModel);
-          },
-          undefined,
-          (error) => console.error('Error loading model:', error)
-        );
-      } else if (pose === 'eagle') {
-        const material = new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
-        const eagle = createEagleShape(material);
-        poseModel = new THREE.Group();
-        poseModel.add(eagle);
-        poseModel.scale.set(0.7, 0.7, 0.7);
-        poseModel.position.set(0, -0.5, -1.5);
-        scene.add(poseModel);
-      }
-      return poseModel;
+      
+      const loader = new GLTFLoader();
+      loader.load(
+        modelPaths[pose],
+        (gltf) => {
+          poseModel = gltf.scene;
+          
+          // Scale and position to match original placement
+          poseModel.scale.set(0.7, 0.7, 0.7);
+          poseModel.position.set(0, -0.5, -1.5);
+          
+          // Ensure model is visible and casts shadows
+          poseModel.traverse((child) => {
+            if (child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
+          
+          scene.add(poseModel);
+        },
+        (xhr) => {
+          console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+        },
+        (error) => {
+          console.error('Error loading model:', error);
+          updateStatus('Failed to load model for ' + pose);
+        }
+      );
     }
+    
+    function changePose(pose) {
+      // Update active button styling
+      document.querySelectorAll('.pose-button').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      document.getElementById(`pose-${pose}`).classList.add('active');
+      
+      // Create model for selected pose
+      createPoseModel(pose);
+      currentPose = pose;
+      
+      // Show instructions
+      const instructionsElement = document.getElementById('pose-instructions');
+      instructionsElement.textContent = poseDescriptions[pose];
+      instructionsElement.style.display = 'block';
+      
+      // Clear existing timer if any
+      if (timerInterval) {
+        clearInterval(timerInterval);
+      }
+      
+      // Set up new timer for 60 seconds
+      secondsLeft = 60;
+      updateTimer();
+      document.getElementById('timer').style.display = 'block';
+      
+      timerInterval = setInterval(() => {
+        secondsLeft--;
+        updateTimer();
+        
+        if (secondsLeft <= 0) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+          
+          // Show completion message
+          updateStatus(`${pose.charAt(0).toUpperCase() + pose.slice(1)} pose complete! Choose another pose.`);
+        }
+      }, 1000);
+    }
+    
+    function updateTimer() {
+      document.getElementById('timer').textContent = secondsLeft;
+    }
+
+    function render(timestamp, frame) {
+      if (poseModel) {
+        // Gentle rotation
+        poseModel.rotation.y += 0.005;
+      }
+      
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
