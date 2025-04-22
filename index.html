@@ -135,26 +135,23 @@
     let remainingSeconds = 120;
     
     const modelFiles = [
-      'tmpw7t1igwc.glb',  // Superman
-      'tmpnp746o6r.glb',  // Victory
-      'tmpmdxokgkr.glb'   // Standing CEO
+      'tmpw7t1igwc.glb',
+      'tmpnp746o6r.glb',
+      'tmpmdxokgkr.glb'
     ];
     
     init();
 
     function init() {
-      // Scene setup
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-      // Renderer setup
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
       renderer.setClearColor(0x000000, 0);
       document.body.appendChild(renderer.domElement);
 
-      // Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
       scene.add(ambientLight);
 
@@ -162,14 +159,14 @@
       directionalLight.position.set(1, 1, 1);
       scene.add(directionalLight);
 
-      // Start button event
       document.getElementById('start-button').addEventListener('click', () => {
         if (navigator.xr) {
           navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
             if (supported) {
-              const sessionInit = { 
-                optionalFeatures: ['dom-overlay'], 
-                domOverlay: { root: document.body } 
+              const sessionInit = {
+                requiredFeatures: ['hit-test'],
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: { root: document.body }
               };
               navigator.xr.requestSession('immersive-ar', sessionInit).then(onSessionStarted);
             } else {
@@ -181,12 +178,10 @@
         }
       });
 
-      // Control buttons
       document.getElementById('prev-button').addEventListener('click', showPreviousPose);
       document.getElementById('next-button').addEventListener('click', showNextPose);
       document.getElementById('timer-button').addEventListener('click', toggleTimer);
 
-      // Handle window resize
       window.addEventListener('resize', onWindowResize);
     }
 
@@ -203,19 +198,14 @@
     }
 
     function onSessionStarted(session) {
-      // Set up XR session
       renderer.xr.setReferenceSpaceType('local');
       renderer.xr.setSession(session);
-      
-      // Hide button and show status
+
       document.getElementById('start-button').style.display = 'none';
       updateStatus('Loading models...');
-      
-      // Show controls
       document.getElementById('controls').style.display = 'flex';
       document.getElementById('pose-info').style.display = 'block';
-      
-      // Load models
+
       loadModels().then(() => {
         updateStatus('Models loaded!');
         setTimeout(() => {
@@ -223,11 +213,8 @@
         }, 2000);
         showCurrentPose();
       });
-      
-      // Start animation loop
-      renderer.setAnimationLoop(render);
 
-      // Handle session end
+      renderer.setAnimationLoop(render);
       session.addEventListener('end', onSessionEnd);
     }
 
@@ -237,7 +224,7 @@
       document.getElementById('controls').style.display = 'none';
       document.getElementById('pose-info').style.display = 'none';
       document.getElementById('timer').style.display = 'none';
-      
+
       if (timerInterval) {
         clearInterval(timerInterval);
         timerRunning = false;
@@ -246,35 +233,26 @@
 
     function loadModels() {
       const loader = new GLTFLoader();
-      const loadPromises = [];
-      
-      for (let i = 0; i < modelFiles.length; i++) {
-        const promise = new Promise((resolve, reject) => {
-          loader.load(modelFiles[i], (gltf) => {
+      const loadPromises = modelFiles.map((file) =>
+        new Promise((resolve, reject) => {
+          loader.load(file, (gltf) => {
             const model = gltf.scene;
-            model.position.set(0, -0.5, -1); // Position in front of camera
-            model.scale.set(0.5, 0.5, 0.5);  // Scale down
+            model.position.set(0, -0.5, -1);
+            model.scale.set(0.5, 0.5, 0.5);
             model.visible = false;
             scene.add(model);
             models.push(model);
             resolve();
           }, undefined, reject);
-        });
-        loadPromises.push(promise);
-      }
-      
+        })
+      );
       return Promise.all(loadPromises);
     }
 
     function showCurrentPose() {
-      // Hide all models
       models.forEach(model => model.visible = false);
-      
-      // Show current model
       if (models[currentPoseIndex]) {
         models[currentPoseIndex].visible = true;
-        
-        // Update pose info
         const poseInfo = document.getElementById('pose-info');
         const pose = descriptions[currentPoseIndex];
         poseInfo.innerHTML = `<strong>${pose.name}</strong><br>${pose.description}`;
@@ -294,9 +272,8 @@
     function toggleTimer() {
       const timerElement = document.getElementById('timer');
       const timerButton = document.getElementById('timer-button');
-      
+
       if (timerRunning) {
-        // Stop timer
         clearInterval(timerInterval);
         timerRunning = false;
         remainingSeconds = 120;
@@ -304,18 +281,16 @@
         timerElement.style.display = 'none';
         timerButton.textContent = 'Start 2-Min Timer';
       } else {
-        // Start timer
         timerRunning = true;
         timerElement.style.display = 'block';
         timerButton.textContent = 'Cancel Timer';
-        
+
         timerInterval = setInterval(() => {
           remainingSeconds--;
-          
           const minutes = Math.floor(remainingSeconds / 60);
           const seconds = remainingSeconds % 60;
           timerElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-          
+
           if (remainingSeconds <= 0) {
             clearInterval(timerInterval);
             timerRunning = false;
@@ -327,12 +302,10 @@
       }
     }
 
-    function render(timestamp, frame) {
+    function render() {
       if (models.length > 0 && models[currentPoseIndex]) {
-        // Gently rotate models for better visibility
         models[currentPoseIndex].rotation.y += 0.002;
       }
-      
       renderer.render(scene, camera);
     }
   </script>
