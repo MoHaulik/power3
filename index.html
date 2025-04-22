@@ -10,7 +10,7 @@
     body { 
       margin: 0; 
       overflow: hidden;
-      font-family: sans-serif;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     #overlay {
       position: absolute;
@@ -21,127 +21,148 @@
     #start-button {
       padding: 12px 24px;
       font-size: 18px;
-      background: rgba(0, 122, 255, 0.8);
+      background: rgba(72, 118, 255, 0.8);
       color: white;
       border: none;
       border-radius: 30px;
       box-shadow: 0 4px 8px rgba(0,0,0,0.2);
       cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    #start-button:hover {
+      background: rgba(72, 118, 255, 1);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.3);
     }
     #status {
       margin-top: 15px;
       font-size: 16px;
       background: rgba(0, 0, 0, 0.5);
       color: white;
-      padding: 10px;
+      padding: 10px 15px;
       border-radius: 12px;
       display: none;
+      backdrop-filter: blur(5px);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    #pose-controls {
+    #controls {
       position: absolute;
       bottom: 20px;
-      width: 100%;
+      left: 50%;
+      transform: translateX(-50%);
       display: flex;
-      justify-content: center;
       gap: 10px;
-      z-index: 2;
+      z-index: 1;
       display: none;
     }
-    .pose-button {
-      padding: 10px 15px;
-      background: rgba(0, 122, 255, 0.8);
-      color: white;
+    .control-button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background: rgba(255, 255, 255, 0.8);
+      color: #333;
       border: none;
       border-radius: 20px;
-      font-size: 14px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
       cursor: pointer;
-    }
-    .pose-button.active {
-      background: rgba(76, 217, 100, 0.8);
     }
     #timer {
       position: absolute;
-      top: 80px;
-      left: 20px;
-      font-size: 24px;
+      top: 20px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.6);
       color: white;
-      background: rgba(0, 0, 0, 0.5);
-      padding: 10px;
+      padding: 10px 15px;
       border-radius: 12px;
+      font-size: 24px;
       display: none;
+      z-index: 1;
     }
-    #pose-instructions {
+    #pose-info {
       position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: rgba(0, 0, 0, 0.7);
+      bottom: 80px;
+      left: 20px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.6);
       color: white;
-      padding: 20px;
-      border-radius: 15px;
-      max-width: 80%;
-      text-align: center;
-      font-size: 18px;
+      padding: 15px;
+      border-radius: 12px;
+      font-size: 16px;
       display: none;
-      z-index: 3;
+      z-index: 1;
+      text-align: center;
     }
   </style>
 </head>
 <body>
   <div id="overlay">
-    <button id="start-button">Start AR Power Poses</button>
+    <button id="start-button">Start Power Poses AR</button>
     <div id="status"></div>
   </div>
   
-  <div id="timer">60</div>
-  <div id="pose-instructions"></div>
-  
-  <div id="pose-controls">
-    <button class="pose-button" id="pose-wonder">Wonder Woman</button>
-    <button class="pose-button" id="pose-victory">Victory</button>
-    <button class="pose-button" id="pose-ceo">Standing CEO</button>
-    <button class="pose-button" id="pose-eagle">Eagle</button>
+  <div id="controls">
+    <button class="control-button" id="prev-button">Previous</button>
+    <button class="control-button" id="next-button">Next</button>
+    <button class="control-button" id="timer-button">Start 2-Min Timer</button>
   </div>
+  
+  <div id="timer">2:00</div>
+  <div id="pose-info"></div>
   
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.150.1/build/three.module.js';
     import { GLTFLoader } from 'https://unpkg.com/three@0.150.1/examples/jsm/loaders/GLTFLoader.js';
+    import { ARButton } from 'https://unpkg.com/three@0.150.1/examples/jsm/webxr/ARButton.js';
 
     let camera, scene, renderer;
-    let poseModel = null;
-    let currentPose = null;
+    let currentPoseIndex = 0;
+    let models = [];
+    let descriptions = [
+      {
+        name: "Superman Pose",
+        description: "Stand tall with feet shoulder-width apart, hands on your hips, elbows out, and chin slightly raised."
+      },
+      {
+        name: "Victory Pose",
+        description: "Raise both arms overhead in a wide 'V' shape, feet apart, and face lifted as if celebrating a win."
+      },
+      {
+        name: "Standing CEO Pose",
+        description: "Place your hands behind your head with elbows wide, stand with feet apart, and keep your chest open."
+      }
+    ];
     let timerInterval = null;
-    let secondsLeft = 60;
+    let timerRunning = false;
+    let remainingSeconds = 120;
     
-    const poseDescriptions = {
-      wonder: "Stand tall with feet shoulder-width apart, hands on your hips, elbows out, and chin slightly raised.",
-      victory: "Raise both arms overhead in a wide 'V' shape, feet apart, and face lifted as if celebrating a win.",
-      ceo: "Place your hands behind your head with elbows wide, stand with feet apart, and keep your chest open.",
-      eagle: "Clasp your hands behind your back, draw your shoulders back, lift your chest, and look forward."
-    };
-    
-    const modelPaths = {
-      wonder: 'tmpw7t1igwc.glb',
-      victory: 'tmpnp746o6r.glb',
-      ceo: 'tmpmdxokgkr.glb',
-      eagle: 'tmpw7t1igwc.glb' // Using wonder model as placeholder for eagle since no model provided
-    };
+    const modelFiles = [
+      'tmpw7t1igwc.glb',  // Superman
+      'tmpnp746o6r.glb',  // Victory
+      'tmpmdxokgkr.glb'   // Standing CEO
+    ];
     
     init();
 
     function init() {
+      // Scene setup
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
+      // Renderer setup
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
       renderer.setClearColor(0x000000, 0);
       document.body.appendChild(renderer.domElement);
 
+      // Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
       scene.add(ambientLight);
 
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+      directionalLight.position.set(1, 1, 1);
+      scene.add(directionalLight);
+
+      // Start button event
       document.getElementById('start-button').addEventListener('click', () => {
         if (navigator.xr) {
           navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
@@ -152,20 +173,21 @@
               };
               navigator.xr.requestSession('immersive-ar', sessionInit).then(onSessionStarted);
             } else {
-              updateStatus('WebXR AR not supported on this device.');
+              updateStatus('WebXR AR session is not supported on this device.');
             }
           });
         } else {
-          updateStatus('WebXR not supported in this browser.');
+          updateStatus('WebXR is not supported in this browser.');
         }
       });
 
+      // Control buttons
+      document.getElementById('prev-button').addEventListener('click', showPreviousPose);
+      document.getElementById('next-button').addEventListener('click', showNextPose);
+      document.getElementById('timer-button').addEventListener('click', toggleTimer);
+
+      // Handle window resize
       window.addEventListener('resize', onWindowResize);
-      
-      document.getElementById('pose-wonder').addEventListener('click', () => changePose('wonder'));
-      document.getElementById('pose-victory').addEventListener('click', () => changePose('victory'));
-      document.getElementById('pose-ceo').addEventListener('click', () => changePose('ceo'));
-      document.getElementById('pose-eagle').addEventListener('click', () => changePose('eagle'));
     }
 
     function updateStatus(message) {
@@ -181,118 +203,134 @@
     }
 
     function onSessionStarted(session) {
+      // Set up XR session
       renderer.xr.setReferenceSpaceType('local');
       renderer.xr.setSession(session);
       
+      // Hide button and show status
       document.getElementById('start-button').style.display = 'none';
-      updateStatus('AR session started. Choose a power pose below.');
+      updateStatus('Loading models...');
       
-      document.getElementById('pose-controls').style.display = 'flex';
+      // Show controls
+      document.getElementById('controls').style.display = 'flex';
+      document.getElementById('pose-info').style.display = 'block';
       
-      changePose('wonder');
+      // Load models
+      loadModels().then(() => {
+        updateStatus('Models loaded!');
+        setTimeout(() => {
+          document.getElementById('status').style.display = 'none';
+        }, 2000);
+        showCurrentPose();
+      });
       
+      // Start animation loop
       renderer.setAnimationLoop(render);
 
+      // Handle session end
       session.addEventListener('end', onSessionEnd);
     }
 
     function onSessionEnd() {
       updateStatus('AR session ended');
       document.getElementById('start-button').style.display = 'block';
-      document.getElementById('pose-controls').style.display = 'none';
+      document.getElementById('controls').style.display = 'none';
+      document.getElementById('pose-info').style.display = 'none';
       document.getElementById('timer').style.display = 'none';
-      document.getElementById('pose-instructions').style.display = 'none';
       
       if (timerInterval) {
         clearInterval(timerInterval);
-        timerInterval = null;
+        timerRunning = false;
       }
     }
-    
-    function createPoseModel(pose) {
-      if (poseModel) {
-        scene.remove(poseModel);
-        poseModel = null;
-      }
-      
+
+    function loadModels() {
       const loader = new GLTFLoader();
-      loader.load(
-        modelPaths[pose],
-        (gltf) => {
-          poseModel = gltf.scene;
-          
-          // Scale and position to match original placement
-          poseModel.scale.set(0.7, 0.7, 0.7);
-          poseModel.position.set(0, -0.5, -1.5);
-          
-          // Ensure model is visible and casts shadows
-          poseModel.traverse((child) => {
-            if (child.isMesh) {
-              child.castShadow = true;
-              child.receiveShadow = true;
-            }
-          });
-          
-          scene.add(poseModel);
-        },
-        (xhr) => {
-          console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-        },
-        (error) => {
-          console.error('Error loading model:', error);
-          updateStatus('Failed to load model for ' + pose);
-        }
-      );
-    }
-    
-    function changePose(pose) {
-      // Update active button styling
-      document.querySelectorAll('.pose-button').forEach(btn => {
-        btn.classList.remove('active');
-      });
-      document.getElementById(`pose-${pose}`).classList.add('active');
+      const loadPromises = [];
       
-      // Create model for selected pose
-      createPoseModel(pose);
-      currentPose = pose;
-      
-      // Show instructions
-      const instructionsElement = document.getElementById('pose-instructions');
-      instructionsElement.textContent = poseDescriptions[pose];
-      instructionsElement.style.display = 'block';
-      
-      // Clear existing timer if any
-      if (timerInterval) {
-        clearInterval(timerInterval);
+      for (let i = 0; i < modelFiles.length; i++) {
+        const promise = new Promise((resolve, reject) => {
+          loader.load(modelFiles[i], (gltf) => {
+            const model = gltf.scene;
+            model.position.set(0, -0.5, -1); // Position in front of camera
+            model.scale.set(0.5, 0.5, 0.5);  // Scale down
+            model.visible = false;
+            scene.add(model);
+            models.push(model);
+            resolve();
+          }, undefined, reject);
+        });
+        loadPromises.push(promise);
       }
       
-      // Set up new timer for 60 seconds
-      secondsLeft = 60;
-      updateTimer();
-      document.getElementById('timer').style.display = 'block';
-      
-      timerInterval = setInterval(() => {
-        secondsLeft--;
-        updateTimer();
-        
-        if (secondsLeft <= 0) {
-          clearInterval(timerInterval);
-          timerInterval = null;
-          
-          // Show completion message
-          updateStatus(`${pose.charAt(0).toUpperCase() + pose.slice(1)} pose complete! Choose another pose.`);
-        }
-      }, 1000);
+      return Promise.all(loadPromises);
     }
-    
-    function updateTimer() {
-      document.getElementById('timer').textContent = secondsLeft;
+
+    function showCurrentPose() {
+      // Hide all models
+      models.forEach(model => model.visible = false);
+      
+      // Show current model
+      if (models[currentPoseIndex]) {
+        models[currentPoseIndex].visible = true;
+        
+        // Update pose info
+        const poseInfo = document.getElementById('pose-info');
+        const pose = descriptions[currentPoseIndex];
+        poseInfo.innerHTML = `<strong>${pose.name}</strong><br>${pose.description}`;
+      }
+    }
+
+    function showNextPose() {
+      currentPoseIndex = (currentPoseIndex + 1) % models.length;
+      showCurrentPose();
+    }
+
+    function showPreviousPose() {
+      currentPoseIndex = (currentPoseIndex - 1 + models.length) % models.length;
+      showCurrentPose();
+    }
+
+    function toggleTimer() {
+      const timerElement = document.getElementById('timer');
+      const timerButton = document.getElementById('timer-button');
+      
+      if (timerRunning) {
+        // Stop timer
+        clearInterval(timerInterval);
+        timerRunning = false;
+        remainingSeconds = 120;
+        timerElement.textContent = '2:00';
+        timerElement.style.display = 'none';
+        timerButton.textContent = 'Start 2-Min Timer';
+      } else {
+        // Start timer
+        timerRunning = true;
+        timerElement.style.display = 'block';
+        timerButton.textContent = 'Cancel Timer';
+        
+        timerInterval = setInterval(() => {
+          remainingSeconds--;
+          
+          const minutes = Math.floor(remainingSeconds / 60);
+          const seconds = remainingSeconds % 60;
+          timerElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          
+          if (remainingSeconds <= 0) {
+            clearInterval(timerInterval);
+            timerRunning = false;
+            remainingSeconds = 120;
+            timerElement.textContent = '2:00';
+            timerButton.textContent = 'Start 2-Min Timer';
+          }
+        }, 1000);
+      }
     }
 
     function render(timestamp, frame) {
-      if (poseModel) {
-        // Gentle rotation
-        poseModel.rotation.y += 0.005;
+      if (models.length > 0 && models[currentPoseIndex]) {
+        // Gently rotate models for better visibility
+        models[currentPoseIndex].rotation.y += 0.002;
       }
       
       renderer.render(scene, camera);
