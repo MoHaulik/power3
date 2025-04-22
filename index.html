@@ -124,12 +124,14 @@
       ceo: null,
       eagle: null
     };
+
     const modelPaths = {
-      wonder: './tmpw7t1igwc.glb',
-      victory: './tmpnp746o6r.glb',
-      ceo: './tmpmdxokgkr.glb',
+      wonder: 'tmpw7t1igwc.glb',
+      victory: 'tmpnp746o6r.glb',
+      ceo: 'tmpmdxokgkr.glb',
       eagle: null
     };
+
     const poseDescriptions = {
       wonder: "Stand tall with feet shoulder-width apart, hands on your hips, elbows out, and chin slightly raised.",
       victory: "Raise both arms overhead in a wide 'V' shape, feet apart, and face lifted as if celebrating a win.",
@@ -309,9 +311,9 @@
       document.getElementById('timer').textContent = secondsLeft;
     }
 
-    function updateStatus(msg) {
+    function updateStatus(message) {
       const status = document.getElementById('status');
-      status.textContent = msg;
+      status.textContent = message;
       status.style.display = 'block';
     }
 
